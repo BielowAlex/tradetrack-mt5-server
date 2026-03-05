@@ -29,15 +29,18 @@ class Mt5GetTradesRequest(Mt5Credentials):
 
 
 class Mt5Deal(BaseModel):
+	"""Closed deal format shared with frontend. All times in Unix seconds for exact hour display."""
 	ticket: int
-	order: int
 	position_id: int
-	time: datetime
 	symbol: str
+	direction: str  # "BUY" | "SELL"
 	volume: float
 	price: float
 	profit: float
-	comment: Optional[str] = None
+	time: int  # close time, Unix seconds
+	time_open: int  # open time, Unix seconds
+	commission: Optional[float] = None
+	swap: Optional[float] = None
 
 
 class Mt5GetTradesResponse(BaseModel):
