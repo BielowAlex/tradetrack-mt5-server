@@ -2,7 +2,7 @@ import time
 from contextlib import contextmanager
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import MetaTrader5 as mt5
 
@@ -10,9 +10,12 @@ import MetaTrader5 as mt5
 HISTORY_RETRY_INTERVAL_SEC = 0.25
 HISTORY_MAX_RETRIES = 6  # макс. ~1.5 с загалом
 
-# MT5 deal entry/type enums (lowercase in Python API)
+# MT5 deal entry/type enums (as in bridge; use dict keys from _asdict())
 DEAL_ENTRY_IN = 0
 DEAL_ENTRY_OUT = 1
+DEAL_ENTRY_INOUT = 2
+DEAL_ENTRY_OUT_BY = 3
+DEAL_ENTRY_CLOSING = (DEAL_ENTRY_OUT, DEAL_ENTRY_INOUT, DEAL_ENTRY_OUT_BY)  # 1, 2, 3 — лише закриття
 DEAL_TYPE_BUY = 0
 DEAL_TYPE_SELL = 1
 
@@ -94,45 +97,67 @@ def fetch_deals(
 	if raw_deals is None:
 		return []
 
-	# Group by position_id: list of (time_unix, entry, type, deal_obj)
-	by_position: Dict[int, List[Tuple[int, int, int, object]]] = defaultdict(list)
+	# Як у bridge: перетворюємо на dict через _asdict(), щоб надійно читати "entry"/"type"
+	deals_dicts: List[dict] = []
 	for d in raw_deals:
 		try:
-			entry = getattr(d, "entry", DEAL_ENTRY_IN)
-			deal_type = getattr(d, "type", DEAL_TYPE_BUY)
-			t = getattr(d, "time", 0)
-			by_position[getattr(d, "position_id", 0)].append((t, entry, deal_type, d))
+			deals_dicts.append(d._asdict() if hasattr(d, "_asdict") else dict(d))
 		except Exception:
 			continue
 
-	# Only closed deals: OUT (entry==1), BUY or SELL (type 0 or 1). One deal per closed position.
+	# Тільки BUY/SELL (type 0/1)
+	trade_dicts = [d for d in deals_dicts if d.get("type") in (DEAL_TYPE_BUY, DEAL_TYPE_SELL)]
+	if not trade_dicts:
+		return []
+
+	# Group by position_id: list of (time_unix, entry, type, deal_dict)
+	by_position: Dict[int, List[Tuple[int, int, int, dict]]] = defaultdict(list)
+	for d in trade_dicts:
+		try:
+			entry = d.get("entry", DEAL_ENTRY_IN)
+			deal_type = d.get("type", DEAL_TYPE_BUY)
+			t_val = d.get("time")
+			if hasattr(t_val, "timestamp"):
+				t = int(t_val.timestamp())
+			else:
+				t = int(t_val) if t_val is not None else 0
+			pid = d.get("position_id") or d.get("ticket", 0)
+			try:
+				pid = int(pid)
+			except (TypeError, ValueError):
+				pid = int(d.get("ticket", 0))
+			by_position[pid].append((t, entry, deal_type, d))
+		except Exception:
+			continue
+
+	# Лише закриття (entry in 1,2,3) — як у bridge DEAL_ENTRY_CLOSING
 	deals: List[Mt5Deal] = []
 	for position_id, group in by_position.items():
 		if position_id == 0:
 			continue
-		# Find open time: earliest IN deal for this position
+		# Час відкриття: найраніший IN (entry==0) по цій позиції
 		time_open_unix: Optional[int] = None
 		for t, entry, _, _ in group:
 			if entry == DEAL_ENTRY_IN:
 				if time_open_unix is None or t < time_open_unix:
 					time_open_unix = t
-		# Emit one record per OUT deal (close)
+		# Один запис на кожну угоду закриття (OUT/INOUT/OUT_BY)
 		for t_unix, entry, deal_type, d in group:
-			if entry != DEAL_ENTRY_OUT or deal_type not in (DEAL_TYPE_BUY, DEAL_TYPE_SELL):
+			if entry not in DEAL_ENTRY_CLOSING or deal_type not in (DEAL_TYPE_BUY, DEAL_TYPE_SELL):
 				continue
 			open_ts = time_open_unix if time_open_unix is not None else t_unix
 			try:
-				comm = getattr(d, "commission", None)
-				sw = getattr(d, "swap", None)
+				comm = d.get("commission")
+				sw = d.get("swap")
 				deals.append(
 					Mt5Deal(
-						ticket=getattr(d, "ticket", 0),
+						ticket=int(d.get("ticket", 0)),
 						position_id=position_id,
-						symbol=getattr(d, "symbol", ""),
+						symbol=str(d.get("symbol", "")).strip(),
 						direction="SELL" if deal_type == DEAL_TYPE_SELL else "BUY",
-						volume=float(getattr(d, "volume", 0.0)),
-						price=float(getattr(d, "price", 0.0)),
-						profit=float(getattr(d, "profit", 0.0)),
+						volume=float(d.get("volume", 0) or 0),
+						price=float(d.get("price", 0) or 0),
+						profit=float(d.get("profit", 0) or 0),
 						time=int(t_unix),
 						time_open=int(open_ts),
 						commission=float(comm) if comm is not None else None,
