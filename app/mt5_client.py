@@ -84,7 +84,8 @@ def fetch_deals(
 	if to_ts is None:
 		to_ts = datetime.now()
 	if from_ts is None:
-		from_ts = to_ts - timedelta(days=30)
+		# Широкий діапазон, щоб мати IN-угоди для коректного time_open (як у bridge)
+		from_ts = to_ts - timedelta(days=365)
 
 	with mt5_session(creds, path=mt5_path):
 		raw_deals: Optional[Iterable] = None
@@ -121,8 +122,17 @@ def fetch_deals(
 			return int(t_val.timestamp())
 		return int(t_val) if t_val is not None else 0
 
-	# Тільки BUY/SELL (type 0/1)
-	trade_dicts = [d for d in deals_dicts if d.get("type") in (DEAL_TYPE_BUY, DEAL_TYPE_SELL)]
+	# Тільки торгові угоди BUY/SELL (type 0/1); відкидаємо balance, credit тощо
+	def _type_int(d: dict) -> int:
+		v = d.get("type")
+		if v is None:
+			return -1
+		try:
+			return int(v)
+		except (TypeError, ValueError):
+			return -1
+
+	trade_dicts = [d for d in deals_dicts if _type_int(d) in (DEAL_TYPE_BUY, DEAL_TYPE_SELL)]
 	if not trade_dicts:
 		return []
 
@@ -163,13 +173,19 @@ def fetch_deals(
 		except Exception:
 			continue
 
+	# Збираємо без дублікатів по ticket (один запис на угоду)
+	seen_tickets: set = set()
 	deals: List[Mt5Deal] = []
 	for position_id, d in closing_only:
 		try:
 			entry = _entry_int(d)
-			deal_type = d.get("type", DEAL_TYPE_BUY)
+			deal_type = _type_int(d)
 			if entry not in DEAL_ENTRY_CLOSING or deal_type not in (DEAL_TYPE_BUY, DEAL_TYPE_SELL):
 				continue
+			ticket = int(d.get("ticket", 0))
+			if ticket in seen_tickets:
+				continue
+			seen_tickets.add(ticket)
 			t_unix = _time_unix(d)
 			time_open_unix: Optional[int] = None
 			for other in all_by_pid.get(position_id, []):
@@ -182,7 +198,7 @@ def fetch_deals(
 			sw = d.get("swap")
 			deals.append(
 				Mt5Deal(
-					ticket=int(d.get("ticket", 0)),
+					ticket=ticket,
 					position_id=position_id,
 					symbol=str(d.get("symbol", "")).strip(),
 					direction="SELL" if deal_type == DEAL_TYPE_SELL else "BUY",

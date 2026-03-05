@@ -19,6 +19,17 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+### Тест без Redis і воркерів (тільки API)
+
+Можна тестувати **локально без інстансів** (без Redis, без RQ workers):
+
+1. Запусти лише Uvicorn (крок 4 вище).
+2. Відкрий Swagger: http://localhost:8000/docs
+3. **Перевірка конекту:** `POST /mt5/test-connect` — тіло: `{"login": 12345, "password": "пароль", "server": "Broker-Server"}`
+4. **Звичайний синк (угоди):** `POST /mt5/get-trades` — ті ж login/password/server; опційно `from_timestamp`, `to_timestamp` (ISO). Повертає лише **закриті** угоди (фільтр entry in 1,2,3, один запис на позицію, без дублікатів по ticket).
+
+Ці два ендпоінти підключаються до MT5 напряму в поточному процессі (без черги). Для `enqueue-trades` та `enqueue-connect` потрібні Redis і воркери.
+
 ## Основні ендпоінти
 
 - `POST /mt5/test-connect` — разовий конект до MT5 та повернення базової інформації про угоди.
