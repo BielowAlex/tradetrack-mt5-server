@@ -105,67 +105,98 @@ def fetch_deals(
 		except Exception:
 			continue
 
+	def _entry_int(d: dict) -> int:
+		"""Нормалізуємо entry: можливі ключі entry/Entry, значення int або string."""
+		v = d.get("entry") if d.get("entry") is not None else d.get("Entry")
+		if v is None:
+			return DEAL_ENTRY_IN
+		try:
+			return int(v)
+		except (TypeError, ValueError):
+			return DEAL_ENTRY_IN
+
+	def _time_unix(d: dict) -> int:
+		t_val = d.get("time")
+		if hasattr(t_val, "timestamp"):
+			return int(t_val.timestamp())
+		return int(t_val) if t_val is not None else 0
+
 	# Тільки BUY/SELL (type 0/1)
 	trade_dicts = [d for d in deals_dicts if d.get("type") in (DEAL_TYPE_BUY, DEAL_TYPE_SELL)]
 	if not trade_dicts:
 		return []
 
-	# Group by position_id: list of (time_unix, entry, type, deal_dict)
-	by_position: Dict[int, List[Tuple[int, int, int, dict]]] = defaultdict(list)
+	# Як у bridge: по одній угоді на позицію (з найпізнішим часом), потім лише закриття (entry in 1,2,3)
+	by_key: Dict[int, dict] = {}
 	for d in trade_dicts:
 		try:
-			entry = d.get("entry", DEAL_ENTRY_IN)
-			deal_type = d.get("type", DEAL_TYPE_BUY)
-			t_val = d.get("time")
-			if hasattr(t_val, "timestamp"):
-				t = int(t_val.timestamp())
-			else:
-				t = int(t_val) if t_val is not None else 0
 			pid = d.get("position_id") or d.get("ticket", 0)
 			try:
 				pid = int(pid)
 			except (TypeError, ValueError):
 				pid = int(d.get("ticket", 0))
-			by_position[pid].append((t, entry, deal_type, d))
+			if pid == 0:
+				continue
+			t = _time_unix(d)
+			if pid not in by_key or t >= _time_unix(by_key[pid]):
+				by_key[pid] = d
 		except Exception:
 			continue
 
-	# Лише закриття (entry in 1,2,3) — як у bridge DEAL_ENTRY_CLOSING
-	deals: List[Mt5Deal] = []
-	for position_id, group in by_position.items():
-		if position_id == 0:
+	# Лише угоди з entry in (1, 2, 3) — явно відкидаємо IN (0) та будь-що інше
+	closing_only = [
+		(pid, d) for pid, d in by_key.items()
+		if _entry_int(d) in DEAL_ENTRY_CLOSING
+	]
+
+	# Збираємо time_open: для кожної позиції шукаємо IN-угоду в повному списку
+	all_by_pid: Dict[int, List[dict]] = defaultdict(list)
+	for d in trade_dicts:
+		try:
+			pid = d.get("position_id") or d.get("ticket", 0)
+			try:
+				pid = int(pid)
+			except (TypeError, ValueError):
+				pid = int(d.get("ticket", 0))
+			if pid != 0:
+				all_by_pid[pid].append(d)
+		except Exception:
 			continue
-		# Час відкриття: найраніший IN (entry==0) по цій позиції
-		time_open_unix: Optional[int] = None
-		for t, entry, _, _ in group:
-			if entry == DEAL_ENTRY_IN:
-				if time_open_unix is None or t < time_open_unix:
-					time_open_unix = t
-		# Один запис на кожну угоду закриття (OUT/INOUT/OUT_BY)
-		for t_unix, entry, deal_type, d in group:
+
+	deals: List[Mt5Deal] = []
+	for position_id, d in closing_only:
+		try:
+			entry = _entry_int(d)
+			deal_type = d.get("type", DEAL_TYPE_BUY)
 			if entry not in DEAL_ENTRY_CLOSING or deal_type not in (DEAL_TYPE_BUY, DEAL_TYPE_SELL):
 				continue
+			t_unix = _time_unix(d)
+			time_open_unix: Optional[int] = None
+			for other in all_by_pid.get(position_id, []):
+				if _entry_int(other) == DEAL_ENTRY_IN:
+					ot = _time_unix(other)
+					if time_open_unix is None or ot < time_open_unix:
+						time_open_unix = ot
 			open_ts = time_open_unix if time_open_unix is not None else t_unix
-			try:
-				comm = d.get("commission")
-				sw = d.get("swap")
-				deals.append(
-					Mt5Deal(
-						ticket=int(d.get("ticket", 0)),
-						position_id=position_id,
-						symbol=str(d.get("symbol", "")).strip(),
-						direction="SELL" if deal_type == DEAL_TYPE_SELL else "BUY",
-						volume=float(d.get("volume", 0) or 0),
-						price=float(d.get("price", 0) or 0),
-						profit=float(d.get("profit", 0) or 0),
-						time=int(t_unix),
-						time_open=int(open_ts),
-						commission=float(comm) if comm is not None else None,
-						swap=float(sw) if sw is not None else None,
-					)
+			comm = d.get("commission")
+			sw = d.get("swap")
+			deals.append(
+				Mt5Deal(
+					ticket=int(d.get("ticket", 0)),
+					position_id=position_id,
+					symbol=str(d.get("symbol", "")).strip(),
+					direction="SELL" if deal_type == DEAL_TYPE_SELL else "BUY",
+					volume=float(d.get("volume", 0) or 0),
+					price=float(d.get("price", 0) or 0),
+					profit=float(d.get("profit", 0) or 0),
+					time=int(t_unix),
+					time_open=int(open_ts),
+					commission=float(comm) if comm is not None else None,
+					swap=float(sw) if sw is not None else None,
 				)
-			except Exception:
-				continue
+			)
+		except Exception:
+			continue
 
 	return deals
 
