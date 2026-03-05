@@ -1,0 +1,6 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+MetaTrader5==5.0.5640
+python-dotenv==1.0.1
+redis==5.2.1
+rq==2.0.0
