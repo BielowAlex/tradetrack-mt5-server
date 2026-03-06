@@ -15,5 +15,8 @@ if __name__ == "__main__":
     setup_logging()
     config = Config()
     config.bind = ["0.0.0.0:8000"]
+    config.workers = 3
+    config.worker_connections = 100
+    config.backlog = 2048
     config.keep_alive_timeout = 0  # уникаємо "Invalid HTTP request" на Windows
     asyncio.run(serve(app, config))
