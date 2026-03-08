@@ -9,6 +9,9 @@ import MetaTrader5 as mt5
 # Очікування готовності історії після логіну: спроби з інтервалом, макс. час
 HISTORY_RETRY_INTERVAL_SEC = 0.25  # швидші повторні спроби
 HISTORY_MAX_RETRIES = 25  # макс. ~6 с загалом при неуспіху
+# якщо брокер повернув порожню історію — дати йому час підтягнути, повторити
+HISTORY_EMPTY_RETRIES = 4
+HISTORY_EMPTY_SLEEP_SEC = 1.2
 
 # MT5 deal entry/type enums (as in bridge; use dict keys from _asdict())
 DEAL_ENTRY_IN = 0
@@ -95,6 +98,13 @@ def fetch_deals(
 			if raw_deals is not None:
 				break
 			time.sleep(HISTORY_RETRY_INTERVAL_SEC)
+
+		if raw_deals is not None and hasattr(raw_deals, "__len__") and len(raw_deals) == 0:
+			for _ in range(HISTORY_EMPTY_RETRIES - 1):
+				time.sleep(HISTORY_EMPTY_SLEEP_SEC)
+				raw_deals = mt5.history_deals_get(from_ts, to_ts)
+				if raw_deals is not None and hasattr(raw_deals, "__len__") and len(raw_deals) > 0:
+					break
 
 	if raw_deals is None:
 		return []

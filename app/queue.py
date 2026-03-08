@@ -11,9 +11,19 @@ from .mt5_client import fetch_deals, Mt5Credentials, Mt5ConnectionError
 
 
 REDIS_URL = "redis://localhost:6379/0"
-QUEUE_NAME = "mt5_trades"
+QUEUE_NAME_PREFIX = "mt5_trades"
+ACCOUNT_TERMINAL_KEY_PREFIX = "mt5:account"
+ACCOUNT_TERMINAL_TTL_SEC = 86400  # 1 day
 
 _redis: Redis | None = None
+_queues_num: int | None = None
+
+
+def _queues_count() -> int:
+	global _queues_num
+	if _queues_num is None:
+		_queues_num = max(1, int(os.environ.get("MT5_QUEUES_NUM", "1")))
+	return _queues_num
 
 
 def get_redis() -> Redis:
@@ -28,16 +38,46 @@ def get_redis() -> Redis:
 	return _redis
 
 
-def get_queue() -> Queue:
-	return Queue(QUEUE_NAME, connection=get_redis())
+def _account_key(login: int, server: str) -> str:
+	normalized = (server or "").strip() or "_"
+	return f"{login}:{normalized}"
+
+
+def get_queue_index_for_account(login: int, server: str) -> int:
+	"""Resolve which queue (terminal) should serve this account. Uses Redis mapping if set."""
+	conn = get_redis()
+	key = f"{ACCOUNT_TERMINAL_KEY_PREFIX}:{_account_key(login, server)}"
+	stored = conn.get(key)
+	if stored is not None:
+		try:
+			return int(stored) % _queues_count()
+		except (ValueError, TypeError):
+			pass
+	return hash(_account_key(login, server)) % _queues_count()
+
+
+def set_account_terminal(login: int, server: str, queue_index: int) -> None:
+	"""Remember that this account was successfully served by this terminal (queue)."""
+	conn = get_redis()
+	key = f"{ACCOUNT_TERMINAL_KEY_PREFIX}:{_account_key(login, server)}"
+	conn.setex(key, ACCOUNT_TERMINAL_TTL_SEC, str(queue_index))
+
+
+def get_queue(queue_index: int | None = None) -> Queue:
+	"""Get queue by index (0..N-1). If index is None, uses first queue (default)."""
+	n = _queues_count()
+	idx = 0 if queue_index is None else (queue_index % n)
+	name = f"{QUEUE_NAME_PREFIX}_{idx}"
+	return Queue(name, connection=get_redis())
 
 
 def enqueue_trades_job(payload: Mt5GetTradesRequest) -> str:
 	"""
 	Enqueue a job to fetch MT5 trades. Returns job_id.
-	Note: jobs are executed by an RQ worker process.
+	Account is routed to the same terminal (queue) as before when known.
 	"""
-	q = get_queue()
+	idx = get_queue_index_for_account(payload.login, payload.server)
+	q = get_queue(idx)
 	job: Job = q.enqueue(
 		run_trades_sync,
 		payload.login,
@@ -52,9 +92,10 @@ def enqueue_trades_job(payload: Mt5GetTradesRequest) -> str:
 def enqueue_connect_job(creds: Mt5Credentials) -> str:
 	"""
 	Enqueue a job that only validates MT5 credentials (test-connect).
-	This проходить через той самий воркер/чергу, щоб уникнути паралельних звернень до MT5.
+	Account is routed to the same terminal (queue) when known.
 	"""
-	q = get_queue()
+	idx = get_queue_index_for_account(creds.login, creds.server)
+	q = get_queue(idx)
 	job: Job = q.enqueue(
 		run_test_connect,
 		creds.login,
@@ -74,15 +115,23 @@ def run_trades_sync(
 	"""
 	Worker function executed by RQ.
 	MT5_PATH (env) — шлях до terminal64.exe portable-інстансу для цього воркера.
+	MT5_QUEUE_INDEX (env) — індекс черги (терміналу); після успіху зберігається для цього акаунта.
 	"""
 	creds = Mt5Credentials(login=login, password=password, server=server)
 	mt5_path = os.environ.get("MT5_PATH") or None
 	deals = fetch_deals(creds, from_ts, to_ts, mt5_path=mt5_path)
-	return {
+	result = {
 		"ok": True,
 		"deals_count": len(deals),
 		"deals": [d.model_dump() for d in deals],
 	}
+	queue_idx = os.environ.get("MT5_QUEUE_INDEX")
+	if queue_idx is not None:
+		try:
+			set_account_terminal(login, server, int(queue_idx))
+		except (ValueError, TypeError):
+			pass
+	return result
 
 
 def run_test_connect(
@@ -93,6 +142,7 @@ def run_test_connect(
 	"""
 	Worker function for credential validation.
 	MT5_PATH (env) — шлях до terminal64.exe portable-інстансу для цього воркера.
+	MT5_QUEUE_INDEX (env) — після успішного connect зберігається прив'язка акаунт -> термінал.
 	"""
 	creds = Mt5Credentials(login=login, password=password, server=server)
 	mt5_path = os.environ.get("MT5_PATH") or None
@@ -104,6 +154,12 @@ def run_test_connect(
 			deals_count=len(deals),
 			sample_deals=[d.model_dump() for d in deals[:5]],
 		)
+		queue_idx = os.environ.get("MT5_QUEUE_INDEX")
+		if queue_idx is not None:
+			try:
+				set_account_terminal(login, server, int(queue_idx))
+			except (ValueError, TypeError):
+				pass
 	except Mt5ConnectionError as e:
 		resp = Mt5TestConnectResponse(
 			ok=False,
@@ -118,8 +174,7 @@ def get_job_status(job_id: str) -> Dict[str, Any]:
 	"""
 	Read job status/result from Redis. Safe to call from API.
 	"""
-	q = get_queue()
-	job = Job.fetch(job_id, connection=q.connection)
+	job = Job.fetch(job_id, connection=get_redis())
 
 	status = job.get_status()
 	base: Dict[str, Any] = {"job_id": job.id, "status": status}
