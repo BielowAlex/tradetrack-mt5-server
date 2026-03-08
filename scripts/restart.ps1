@@ -56,4 +56,4 @@ for ($i = 0; $i -lt $WorkersCount; $i++) {
 }
 
 Pop-Location
-Write-Host "Готово. Відкрито 1 API + $WorkersCount воркерів. Закрий вікна для зупинки." -ForegroundColor Cyan
+Write-Host ("Done. 1 API + " + $WorkersCount + " workers. Close windows to stop.") -ForegroundColor Cyan
