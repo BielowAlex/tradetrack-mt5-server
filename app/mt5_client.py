@@ -7,8 +7,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import MetaTrader5 as mt5
 
 # Очікування готовності історії після логіну: спроби з інтервалом, макс. час
-HISTORY_RETRY_INTERVAL_SEC = 0.25
-HISTORY_MAX_RETRIES = 6  # макс. ~1.5 с загалом
+HISTORY_RETRY_INTERVAL_SEC = 0.25  # швидші повторні спроби
+HISTORY_MAX_RETRIES = 25  # макс. ~6 с загалом при неуспіху
 
 # MT5 deal entry/type enums (as in bridge; use dict keys from _asdict())
 DEAL_ENTRY_IN = 0
@@ -88,6 +88,7 @@ def fetch_deals(
 		from_ts = to_ts - timedelta(days=365)
 
 	with mt5_session(creds, path=mt5_path):
+		time.sleep(0.4)  # мінімальна пауза після логіну перед запитом історії
 		raw_deals: Optional[Iterable] = None
 		for _ in range(HISTORY_MAX_RETRIES):
 			raw_deals = mt5.history_deals_get(from_ts, to_ts)

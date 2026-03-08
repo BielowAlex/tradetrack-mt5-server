@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -79,33 +81,33 @@ def get_trades(payload: Mt5GetTradesRequest):
 
 
 @app.post("/mt5/enqueue-trades", summary="Поставити задачу на отримання угод у чергу")
-def enqueue_trades(payload: Mt5GetTradesRequest):
+async def enqueue_trades(payload: Mt5GetTradesRequest):
 	"""
 	Ставит задачу в Redis/RQ-чергу. Повертає job_id, який можна опитувати.
 	Реальний виклик MT5 виконає окремий worker-процес.
 	"""
-	job_id = enqueue_trades_job(payload)
+	job_id = await asyncio.to_thread(enqueue_trades_job, payload)
 	return {"job_id": job_id, "status": "queued"}
 
 
 @app.post("/mt5/enqueue-connect", summary="Поставити задачу на перевірку конекту в чергу")
-def enqueue_connect(creds: Mt5Credentials):
+async def enqueue_connect(creds: Mt5Credentials):
 	"""
 	Ставит задачу на test-connect у Redis/RQ-чергу. Повертає job_id.
 	Це безпечний спосіб перевіряти креденшіали, якщо багато юзерів конектяться одночасно.
 	"""
-	job_id = enqueue_connect_job(creds)
+	job_id = await asyncio.to_thread(enqueue_connect_job, creds)
 	return {"job_id": job_id, "status": "queued"}
 
 
 @app.get("/mt5/job-status/{job_id}", summary="Статус задачі з черги")
-def job_status(job_id: str):
+async def job_status(job_id: str):
 	"""
 	Повертає статус задачі: queued, started, finished, failed.
 	Якщо finished — повертає result з кількістю угод і масивом deals.
 	"""
 	try:
-		status = get_job_status(job_id)
+		status = await asyncio.to_thread(get_job_status, job_id)
 	except Exception as e:
 		raise HTTPException(status_code=404, detail=f"Job not found: {e}") from e
 

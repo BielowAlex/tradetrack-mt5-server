@@ -13,13 +13,19 @@ from .mt5_client import fetch_deals, Mt5Credentials, Mt5ConnectionError
 REDIS_URL = "redis://localhost:6379/0"
 QUEUE_NAME = "mt5_trades"
 
+_redis: Redis | None = None
+
 
 def get_redis() -> Redis:
 	"""
-	Create a Redis connection. For production you can make this configurable
-	via environment variables.
+	Single shared Redis connection (pool). Reused across enqueue/job-status to avoid
+	per-request connection overhead.
 	"""
-	return Redis.from_url(REDIS_URL)
+	global _redis
+	if _redis is None:
+		url = os.environ.get("REDIS_URL", REDIS_URL)
+		_redis = Redis.from_url(url, decode_responses=False)
+	return _redis
 
 
 def get_queue() -> Queue:
