@@ -47,7 +47,7 @@ for ($i = 0; $i -lt $WorkersCount; $i++) {
 	$pathVar = "MT5_PATH_$i"
 	$Mt5Path = (Get-Item -Path "Env:$pathVar" -ErrorAction SilentlyContinue).Value
 	if (-not $Mt5Path) { $Mt5Path = (Get-Item -Path "Env:MT5_PATH" -ErrorAction SilentlyContinue).Value }
-	if (-not $Mt5Path) { $Mt5Path = "C:\Program Files\mt5-instance$($i+1)\terminal64.exe" }
+	if (-not $Mt5Path) { $Mt5Path = "C:\mt5-instance$($i+1)\terminal64.exe" }
 	$Mt5Path = $Mt5Path -replace "'", "''"
 	$WorkerCmd = "Set-Location '$ProjectRoot'; `$env:MT5_QUEUE_INDEX='$i'; `$env:MT5_PATH='$Mt5Path'; python -m rq.cli worker --worker-class app.run_worker.WindowsSimpleWorker mt5_trades_$i --url $RedisUrl"
 	Write-Host "Запускаю RQ worker $i (mt5_trades_$i)..." -ForegroundColor Green
