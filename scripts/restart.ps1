@@ -55,5 +55,15 @@ for ($i = 0; $i -lt $WorkersCount; $i++) {
 	Start-Sleep -Milliseconds 500
 }
 
+# 3) Optional extra server (e.g. CAD or other) from .env EXTRA_SERVER_CMD
+if ($env:EXTRA_SERVER_CMD) {
+	Write-Host "Starting extra server (EXTRA_SERVER_CMD)..." -ForegroundColor Green
+	Start-Process powershell -ArgumentList "-NoExit", "-Command", $env:EXTRA_SERVER_CMD
+	Start-Sleep -Milliseconds 500
+}
+
 Pop-Location
-Write-Host ("Done. 1 API + " + $WorkersCount + " workers. Close windows to stop.") -ForegroundColor Cyan
+$msg = "Done. 1 API + " + $WorkersCount + " workers."
+if ($env:EXTRA_SERVER_CMD) { $msg += " + extra server." }
+$msg += " Close windows to stop."
+Write-Host $msg -ForegroundColor Cyan

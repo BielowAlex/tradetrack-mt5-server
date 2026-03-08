@@ -96,7 +96,7 @@ python -m rq.cli worker --worker-class app.run_worker.WindowsSimpleWorker mt5_tr
 .\scripts\restart.ps1
 ```
 
-Скрипт: зупиняє всі процеси `python.exe` (API та RQ workers), потім запускає API та **N воркерів** (N = `MT5_QUEUES_NUM` з `.env`, за замовчуванням 3). Кожен воркер відкривається в окремому вікні зі своїми змінними: індекс черги 0, 1, 2, … і шлях до MT5 з `MT5_PATH_0`, `MT5_PATH_1`, `MT5_PATH_2` у `.env`. API при старті завантажує `.env` (через python-dotenv), тому `MT5_QUEUES_NUM` і `REDIS_URL` потрібно задати саме там. Щоб лише запустити без зупинки попередніх процесів: `.\scripts\restart.ps1 -SkipKill`.
+Скрипт: зупиняє всі процеси `python.exe` (API та RQ workers), потім запускає API та **N воркерів** (N = `MT5_QUEUES_NUM` з `.env`, за замовчуванням 3). Кожен воркер відкривається в окремому вікні зі своїми змінними: індекс черги 0, 1, 2, … і шлях до MT5 з `MT5_PATH_0`, `MT5_PATH_1`, `MT5_PATH_2` у `.env`. Якщо в `.env` задано **`EXTRA_SERVER_CMD`** (наприклад команда запуску іншого сервера — CAD тощо), скрипт після воркерів відкриває ще одне вікно і виконує цю команду. API при старті завантажує `.env` (через python-dotenv), тому `MT5_QUEUES_NUM` і `REDIS_URL` потрібно задати саме там. Щоб лише запустити без зупинки попередніх процесів: `.\scripts\restart.ps1 -SkipKill`.
 
 **Вручну:**
 
