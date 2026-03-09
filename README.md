@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 3. Переконайся, що на цій самій машині встановлено MetaTrader 5 і він може логінитись до потрібного брокера.
 
-4. **Broker discovery (проп-фірми):** якщо сервер не в списку компаній MT5, Python API не зможе підключитись. Бекенд автоматично запускає `terminal64.exe /portable /login /password /server` — MT5 робить discovery через MetaQuotes-директорію, додає сервер у `servers.dat`, після чого `initialize()` працює. Це додає ~10 с при першому підключенні до нового брокера. Щоб вимкнути (якщо всі сервери вже відомі): `MT5_SKIP_DISCOVERY=1`.
+4. **Broker discovery (проп-фірми):** якщо сервер не в списку компаній MT5, Python API не зможе підключитись. Бекенд автоматично запускає `terminal64.exe /portable /login /password /server` — MT5 робить discovery, додає сервер у `servers.dat`. Для MetaQuotes-Demo discovery пропускається (вже в дефолтному списку). Це додає ~10 с при першому підключенні до нового брокера. Якщо виникають IPC-помилки або конфлікти з інстансами — вимкни: `MT5_SKIP_DISCOVERY=1`.
 
 5. Запусти сервер:
 

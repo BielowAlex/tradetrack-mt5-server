@@ -27,6 +27,13 @@ DEAL_TYPE_SELL = 1
 
 from .models import Mt5Credentials, Mt5Deal
 
+# Сервери, для яких discovery не потрібен (вже в дефолтному servers.dat).
+# Discovery для них може викликати конфлікти та IPC -10001.
+_DISCOVERY_SKIP_SERVERS = frozenset({
+	"MetaQuotes-Demo",
+	"MetaQuotes-Demo2",
+})
+
 
 class Mt5ConnectionError(Exception):
 	"""Raised when initialization or login to MT5 fails."""
@@ -42,15 +49,18 @@ def mt5_session(creds: Mt5Credentials, timeout_ms: int = 30_000, path: Optional[
 	mt5.shutdown()
 
 	# Broker discovery: якщо сервер не в servers.dat, MT5 не знайде його.
-	# Запускаємо terminal64.exe /portable /login /password /server — MT5 зробить discovery,
-	# додасть сервер у servers.dat, після чого Python initialize() працює.
+	# Запускаємо terminal64.exe /portable /login /password /server — MT5 зробить discovery.
+	# Пропускаємо для MetaQuotes-Demo — вже в дефолтному списку; discovery може конфліктувати.
 	if path and path.strip() and not os.environ.get("MT5_SKIP_DISCOVERY"):
-		ensure_server_known(
-			path.strip(),
-			creds.login,
-			creds.password,
-			creds.server.strip(),
-		)
+		_server = (creds.server or "").strip()
+		if _server and _server not in _DISCOVERY_SKIP_SERVERS:
+			ensure_server_known(
+				path.strip(),
+				creds.login,
+				creds.password,
+				_server,
+			)
+			time.sleep(2)  # Пауза після discovery, щоб уникнути IPC race (-10001)
 
 	init_kwargs = {
 		"login": creds.login,

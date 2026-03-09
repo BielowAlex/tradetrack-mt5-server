@@ -52,14 +52,12 @@ def ensure_server_known(
 		f"/server:{server}",
 	]
 
-	creationflags = (
-		getattr(subprocess, "CREATE_NO_WINDOW", 0) if _is_windows() else 0
-	)
+	# Не використовуємо CREATE_NO_WINDOW — MT5 може потребувати вікно для коректної ініціалізації.
+	# Вікно зʼявиться на ~10 с під час discovery, потім закриється.
 	proc = subprocess.Popen(
 		args,
 		stdout=subprocess.DEVNULL,
 		stderr=subprocess.DEVNULL,
-		creationflags=creationflags,
 	)
 
 	try:
@@ -72,13 +70,5 @@ def ensure_server_known(
 		except (subprocess.TimeoutExpired, ProcessLookupError):
 			try:
 				proc.kill()
-			except ProcessLookupError:
-				pass
-
-
-def _is_windows() -> bool:
-	try:
-		import sys
-		return sys.platform == "win32"
-	except Exception:
-		return False
+		except ProcessLookupError:
+			pass
