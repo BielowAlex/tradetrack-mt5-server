@@ -70,5 +70,5 @@ def ensure_server_known(
 		except (subprocess.TimeoutExpired, ProcessLookupError):
 			try:
 				proc.kill()
-		except ProcessLookupError:
-			pass
+			except ProcessLookupError:
+				pass
