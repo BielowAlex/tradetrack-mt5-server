@@ -13,7 +13,9 @@ pip install -r requirements.txt
 
 3. Переконайся, що на цій самій машині встановлено MetaTrader 5 і він може логінитись до потрібного брокера.
 
-4. Запусти сервер:
+4. **Broker discovery (проп-фірми):** якщо сервер не в списку компаній MT5, Python API не зможе підключитись. Бекенд автоматично запускає `terminal64.exe /portable /login /password /server` — MT5 робить discovery через MetaQuotes-директорію, додає сервер у `servers.dat`, після чого `initialize()` працює. Це додає ~10 с при першому підключенні до нового брокера. Щоб вимкнути (якщо всі сервери вже відомі): `MT5_SKIP_DISCOVERY=1`.
+
+5. Запусти сервер:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -35,7 +37,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - `POST /mt5/test-connect` — разовий конект до MT5 та повернення базової інформації про угоди.
 - `POST /mt5/get-trades` — повернення списку угод за останній період (MVP).
 
-Обидва ендпоінти виконують коротке підключення: `initialize → login → отримання даних → shutdown`.
+Обидва ендпоінти виконують коротке підключення: `discovery (якщо MT5_PATH задано) → initialize → login → отримання даних → shutdown`.
 
 ## Черга задач (Redis + RQ)
 

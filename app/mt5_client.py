@@ -1,3 +1,4 @@
+import os
 import time
 from contextlib import contextmanager
 from collections import defaultdict
@@ -5,6 +6,8 @@ from datetime import datetime, timedelta
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import MetaTrader5 as mt5
+
+from .mt5_discovery import ensure_server_known
 
 # Очікування готовності історії після логіну: спроби з інтервалом, макс. час
 HISTORY_RETRY_INTERVAL_SEC = 0.25  # швидші повторні спроби
@@ -37,6 +40,17 @@ def mt5_session(creds: Mt5Credentials, timeout_ms: int = 30_000, path: Optional[
 	"""
 	# Скидаємо попередній стан, щоб термінал не залипав на невдалому акаунті
 	mt5.shutdown()
+
+	# Broker discovery: якщо сервер не в servers.dat, MT5 не знайде його.
+	# Запускаємо terminal64.exe /portable /login /password /server — MT5 зробить discovery,
+	# додасть сервер у servers.dat, після чого Python initialize() працює.
+	if path and path.strip() and not os.environ.get("MT5_SKIP_DISCOVERY"):
+		ensure_server_known(
+			path.strip(),
+			creds.login,
+			creds.password,
+			creds.server.strip(),
+		)
 
 	init_kwargs = {
 		"login": creds.login,
